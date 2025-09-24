@@ -90,6 +90,7 @@ struct dnshdr {
 kprobe:br_forward
 {
   $skb = ((struct sk_buff *) arg1);
+  $time = strftime("%H:%M:%S:%f", nsecs);
 
   $proto = bswap($skb->protocol);
   $ip4h = ((struct iphdr *) ($skb->head + $skb->network_header));
@@ -146,8 +147,6 @@ kprobe:br_forward
           (!$pod_to_pod_via_proxy && ($src_is_pod && $dst_is_pod) && (!$src_is_internal && !$dst_is_internal)) ||
           ($pod_to_pod_via_proxy && ($src_is_pod || $dst_is_pod))
         ) {
-        $time = strftime("%H:%M:%S:%f", nsecs);
-
         printf("[%s] [%p] %s:%d -> %s:%d (len: %d, proto: %d, encap: %d (skb: %d), ifindex: %d, netns: %x, srcPod: %d (internal: %d), dstPod: %d (internal: %d), proxy: %d (masqueraded: %d))\n",
           $time, $skb,
           ntop($ip4h->saddr),
@@ -231,8 +230,6 @@ kprobe:br_forward
           (!$pod_to_pod_via_proxy && ($src_is_pod && $dst_is_pod) && (!$src_is_internal && !$dst_is_internal)) ||
           ($pod_to_pod_via_proxy && ($src_is_pod || $dst_is_pod))
         ) {
-        $time = strftime("%H:%M:%S:%f", nsecs);
-
         printf("[%s] [%p] %s:%d -> %s:%d (len: %d, proto: %d, encap: %d (skb: %d), ifindex: %d, netns: %x, srcPod: %d (internal: %d), dstPod: %d (internal: %d), proxy: %d (masqueraded: %d))\n",
           $time, $skb,
           ntop($ip6h->saddr.in6_u.u6_addr8),
