@@ -53,7 +53,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  test_concurrency: 5
+  test_concurrency: 1
 
 jobs:
   echo-inputs:
@@ -129,7 +129,7 @@ jobs:
       matrix:
         include: ${{ fromJson(needs.generate-matrix.outputs.matrix) }}
 
-    timeout-minutes: 75
+    timeout-minutes: 200
     steps:
       - name: Collect Workflow Telemetry
         uses: catchpoint/workflow-telemetry-action@94c3c3d9567a0205de6da68a76c428ce4e769af1 # v2.0.0
@@ -230,8 +230,8 @@ jobs:
           fi
 
           CONNECTIVITY_TEST_DEFAULTS="${{ steps.e2e_config.outputs.test_flags }} \
-                                      --sysdump-hubble-flows-count=1000000 \
-                                      --sysdump-hubble-flows-timeout=5m \
+                                      --sysdump-hubble-flows-count=10000000 \
+                                      --sysdump-hubble-flows-timeout=10m \
                                       --flush-ct \
                                       ${EXTRA_CLI_FLAGS[*]@Q}"
 
@@ -289,7 +289,7 @@ jobs:
 
           cilium encrypt create-key --auth-algo ${{ matrix.key-one }}
 
-          cilium install ${{ steps.cilium-config.outputs.config }} ${{ steps.kvstore.outputs.config }} --set extraConfig.boot-id-file=/var/run/cilium/boot_id
+          cilium install ${{ steps.cilium-config.outputs.config }} ${{ steps.kvstore.outputs.config }} --set extraConfig.boot-id-file=/var/run/cilium/boot_id --set bpf.monitorAggregation=none
 
           cilium status --wait --interactive=false
           kubectl get pods --all-namespaces -o wide

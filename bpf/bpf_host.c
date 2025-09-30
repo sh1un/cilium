@@ -1215,8 +1215,13 @@ do_netdev(struct __ctx_buff *ctx, __u16 proto, __u32 __maybe_unused identity,
 __section_entry
 int cil_from_netdev(struct __ctx_buff *ctx)
 {
+	__u32 tc_index = ctx->tc_index | 0xf0000000;
 	__u32 src_id = UNKNOWN_ID;
 	__be16 proto = 0;
+
+	send_trace_notify(ctx, TRACE_TO_PROXY, tc_index, UNKNOWN_ID,
+			  (__u16)tc_index, tc_index,
+			  TRACE_REASON_UNKNOWN, 4242, proto);
 
 	check_and_store_ip_trace_id(ctx);
 
