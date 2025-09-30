@@ -20,27 +20,42 @@ import (
 	"fmt"
 	"math"
 	"os"
+	"regexp"
 	"strings"
 
 	"github.com/onsi/ginkgo/config"
 	"github.com/onsi/ginkgo/types"
 )
 
+// JUnitProperty represents a property in the JUnit XML
+type JUnitProperty struct {
+	Name  string `xml:"name,attr"`
+	Value string `xml:"value,attr"`
+}
+
+// JUnitProperties represents the properties section in JUnit XML
+type JUnitProperties struct {
+	XMLName    xml.Name        `xml:"properties"`
+	Properties []JUnitProperty `xml:"property"`
+}
+
 // JUnitTestSuite main struct to report all test in Junit Format
 type JUnitTestSuite struct {
-	XMLName   xml.Name        `xml:"testsuite"`
-	TestCases []JUnitTestCase `xml:"testcase"`
-	Name      string          `xml:"name,attr"`
-	Tests     int             `xml:"tests,attr"`
-	Failures  int             `xml:"failures,attr"`
-	Errors    int             `xml:"errors,attr"`
-	Time      float64         `xml:"time,attr"`
+	XMLName    xml.Name         `xml:"testsuite"`
+	Properties *JUnitProperties `xml:"properties,omitempty"`
+	TestCases  []JUnitTestCase  `xml:"testcase"`
+	Name       string           `xml:"name,attr"`
+	Tests      int              `xml:"tests,attr"`
+	Failures   int              `xml:"failures,attr"`
+	Errors     int              `xml:"errors,attr"`
+	Time       float64          `xml:"time,attr"`
 }
 
 // JUnitTestCase test case struct to report in Junit Format.
 type JUnitTestCase struct {
 	Name           string               `xml:"name,attr"`
 	ClassName      string               `xml:"classname,attr"`
+	Properties     *JUnitProperties     `xml:"properties,omitempty"`
 	FailureMessage *JUnitFailureMessage `xml:"failure,omitempty"`
 	Skipped        *JUnitSkipped        `xml:"skipped,omitempty"`
 	Time           float64              `xml:"time,attr"`
@@ -79,7 +94,37 @@ func (reporter *JUnitReporter) SpecSuiteWillBegin(config config.GinkgoConfigType
 		Name:      summary.SuiteDescription,
 		TestCases: []JUnitTestCase{},
 	}
-	reporter.testSuiteName = summary.SuiteDescription
+}
+
+// extractTestOwnerPrefix extracts the test owner from the test name pattern
+func (reporter *JUnitReporter) extractTestOwnerPrefix(testName string) string {
+	if testName == "" {
+		return ""
+	}
+
+	testName = strings.TrimPrefix(testName, "[Top Level] ")
+
+	// Look for test class patterns like "K8sAgentPolicyTest", "K8sDatapathServicesTest", etc.
+	// These typically end with "Test" and are at the beginning of the test name
+	parts := strings.Fields(testName)
+	if len(parts) > 0 {
+		firstPart := parts[0]
+		// Check if it looks like a test class name (ends with "Test")
+		if strings.HasSuffix(firstPart, "Test") ||
+			strings.HasSuffix(firstPart, "DatapathConfig") ||
+			strings.HasPrefix(firstPart, "RuntimeAgent") {
+			return firstPart
+		}
+	}
+
+	// Fallback: look for any word ending with "Test" in the test name
+	re := regexp.MustCompile(`\b\w+Test(s)?(Extended)?\b`)
+	matches := re.FindAllString(testName, -1)
+	if len(matches) > 0 {
+		return matches[0]
+	}
+
+	return ""
 }
 
 // SpecWillRun needed by ginkgo. Not used.
@@ -117,12 +162,35 @@ func (reporter *JUnitReporter) handleSetupSummary(name string, setupSummary *typ
 	}
 }
 
+// AddProperty adds a property to a specific test case
+func (testCase *JUnitTestCase) AddProperty(name, value string) {
+	if testCase.Properties == nil {
+		testCase.Properties = &JUnitProperties{
+			Properties: []JUnitProperty{},
+		}
+	}
+	testCase.Properties.Properties = append(testCase.Properties.Properties, JUnitProperty{
+		Name:  name,
+		Value: value,
+	})
+}
+
 // SpecDidComplete reports the test results in a JUTestCase struct
 func (reporter *JUnitReporter) SpecDidComplete(specSummary *types.SpecSummary) {
 	testCase := JUnitTestCase{
 		Name:      strings.Join(specSummary.ComponentTexts[1:], " "),
 		ClassName: reporter.testSuiteName,
 	}
+
+	// Extract owner from the full test name for individual test cases
+	fullTestName := strings.Join(specSummary.ComponentTexts, " ")
+	testPrefixName := reporter.extractTestOwnerPrefix(fullTestName)
+	testOwner := reporter.mapTestToCODEOWNER(testPrefixName)
+	if testOwner == "" {
+		panic(fmt.Sprintf("testOwner not found for test %s", fullTestName))
+	}
+	testCase.AddProperty("owner", testOwner)
+
 	if specSummary.State == types.SpecStateFailed || specSummary.State == types.SpecStateTimedOut || specSummary.State == types.SpecStatePanicked {
 		testCase.FailureMessage = &JUnitFailureMessage{
 			Type:    reporter.failureTypeForState(specSummary.State),
@@ -200,4 +268,36 @@ func reportChecks(output string) (string, string) {
 		}
 	}
 	return stdout, checks
+}
+
+// mapTestToCODEOWNER maps the test prefix to the corresponding CODEOWNER team
+// based on predefined mappings.
+// If no mapping is found, it returns an empty string.
+func (reporter *JUnitReporter) mapTestToCODEOWNER(prefix string) string {
+	switch prefix {
+	case "K8sAgentChaosTest":
+		return "sig-agent"
+	case "K8sAgentFQDNTest",
+		"RuntimeAgentFQDNPolicies":
+		return "fqdn"
+	case "K8sAgentHubbleTest":
+		return "sig-hubble"
+	case "K8sAgentPolicyTest",
+		"K8sAgentPerNodeConfigTest",
+		"K8sPolicyTestExtended",
+		"RuntimeAgentPolicies":
+		return "sig-policy"
+	case "K8sDatapathBandwidthTest",
+		"K8sDatapathConfig",
+		"RuntimeDatapathMonitorTest":
+		return "sig-datapath"
+	case "K8sDatapathLRPTests",
+		"K8sDatapathServicesTest":
+		return "sig-lb"
+	case "K8sKafkaPolicyTest":
+		return "envoy"
+	case "K8sSpecificMACAddressTests":
+		return "sig-k8s"
+	}
+	return ""
 }
