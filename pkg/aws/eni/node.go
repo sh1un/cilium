@@ -592,8 +592,18 @@ func (n *Node) CreateInterface(ctx context.Context, allocation *ipam.AllocationA
 
 	desc := "Cilium-CNI (" + n.node.InstanceID() + ")"
 
-	// Must allocate secondary ENI IPs as needed, up to ENI instance limit - 1 (reserve 1 for primary IP)
-	toAllocate := min(allocation.IPv4.MaxIPsToAllocate, limits.IPv4-1)
+	// Calculate the number of IPs to allocate for the new ENI.
+	// For prefix delegation mode, we allocate based on the number of prefixes needed,
+	// not limited by the per-ENI secondary IP limit. This allows us to request all
+	// needed prefixes in a single CreateNetworkInterface API call, reducing the need
+	// for subsequent AssignPrivateIpAddresses calls.
+	// For secondary IP mode, we allocate up to ENI instance limit - 1 (reserve 1 for primary IP).
+	var toAllocate int
+	if isPrefixDelegated {
+		toAllocate = allocation.IPv4.MaxIPsToAllocate
+	} else {
+		toAllocate = min(allocation.IPv4.MaxIPsToAllocate, limits.IPv4-1)
+	}
 	// Validate whether request has already been fulfilled in the meantime
 	if toAllocate == 0 {
 		return 0, "", nil
