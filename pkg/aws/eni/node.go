@@ -593,15 +593,17 @@ func (n *Node) CreateInterface(ctx context.Context, allocation *ipam.AllocationA
 	desc := "Cilium-CNI (" + n.node.InstanceID() + ")"
 
 	// Calculate the number of IPs to allocate for the new ENI.
-	// For prefix delegation mode, we allocate based on the number of prefixes needed,
-	// not limited by the per-ENI secondary IP limit. This allows us to request all
-	// needed prefixes in a single CreateNetworkInterface API call, reducing the need
-	// for subsequent AssignPrivateIpAddresses calls.
-	// For secondary IP mode, we allocate up to ENI instance limit - 1 (reserve 1 for primary IP).
 	var toAllocate int
 	if isPrefixDelegated {
-		toAllocate = allocation.IPv4.MaxIPsToAllocate
+		// For prefix delegation mode, we need to consider the instance type limits.
+		// Each prefix counts as 1 IP slot, so max prefixes per ENI = limits.IPv4 - 1
+		// (reserve 1 for primary IP). The maximum IPs we can allocate per ENI is
+		// (limits.IPv4 - 1) * ENIPDBlockSizeIPv4.
+		// See https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ec2-prefix-eni.html#prefix-limit for more details.
+		maxIPsPerENI := (limits.IPv4 - 1) * option.ENIPDBlockSizeIPv4
+		toAllocate = min(allocation.IPv4.MaxIPsToAllocate, maxIPsPerENI)
 	} else {
+		// For secondary IP mode, we allocate up to ENI instance limit - 1 (reserve 1 for primary IP).
 		toAllocate = min(allocation.IPv4.MaxIPsToAllocate, limits.IPv4-1)
 	}
 	// Validate whether request has already been fulfilled in the meantime
